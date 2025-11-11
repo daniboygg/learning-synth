@@ -11,10 +11,34 @@ static SDL_AudioStream *audio_stream = NULL;
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
+typedef enum {
+    AUDIO_WAVE_SINE,
+    AUDIO_WAVE_SQUARE,
+    AUDIO_WAVE_SAW,
+    AUDIO_WAVE_TRIANGLE,
+} AudioWaveType;
+
+char *audio_wave_type_to_str(AudioWaveType t) {
+    switch (t) {
+        case AUDIO_WAVE_SINE:
+            return "SINE";
+        case AUDIO_WAVE_SQUARE:
+            return "SQUARE";
+        case AUDIO_WAVE_SAW:
+            return "SAW";
+        case AUDIO_WAVE_TRIANGLE:
+            return "TRIANGLE";
+        default:
+            SDL_assert(false);
+            return "";
+    }
+}
+
 int sample_rate = 44100;
 float BASE_FREQ_A = 440.0f;
 float freq = 440.0f;
 float phase = 0;
+AudioWaveType wave_type = AUDIO_WAVE_TRIANGLE;
 
 static void SDLCALL audio_callback(
     void *userdata,
@@ -96,13 +120,76 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         return SDL_APP_SUCCESS;
     }
 
-    if ( event->type == SDL_EVENT_MOUSE_MOTION) {
+    if (event->type == SDL_EVENT_MOUSE_MOTION) {
         float max = BASE_FREQ_A * 2;
         float f = map(event->motion.x, 0, WIDTH, 0, max);
         freq = f;
     }
 
+    if (event->type == SDL_EVENT_KEY_DOWN) {
+        if (event->key.key == SDLK_A) {
+            wave_type = AUDIO_WAVE_SINE;
+        }
+        if (event->key.key == SDLK_S) {
+            wave_type = AUDIO_WAVE_SQUARE;
+        }
+        if (event->key.key == SDLK_D) {
+            wave_type = AUDIO_WAVE_SAW;
+        }
+        if (event->key.key == SDLK_F) {
+            wave_type = AUDIO_WAVE_TRIANGLE;
+        }
+    }
+
     return SDL_APP_CONTINUE;
+}
+
+void audio_create_wave_sine(SDL_FPoint *points, float waves) {
+    float visual_phase = 0;
+    for (int i = 0; i < WIDTH; i++) {
+        float y = -100 * SDL_sinf(2 * SDL_PI_F * visual_phase);
+        points[i] = (SDL_FPoint){.x = i, .y = y + HEIGHT / 2};
+        visual_phase += waves / WIDTH;
+        if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
+    }
+}
+
+void audio_create_wave_square(SDL_FPoint *points, float waves) {
+    float visual_phase = 0;
+    for (int i = 0; i < WIDTH; i++) {
+        float y = -100 * (SDL_sinf(2 * SDL_PI_F * visual_phase) > 0 ? 1.0f : -1.0f);
+        points[i] = (SDL_FPoint){.x = i, .y = y + HEIGHT / 2};
+        visual_phase += waves / WIDTH;
+        if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
+    }
+}
+
+void audio_create_wave_saw(SDL_FPoint *points, float waves) {
+    float visual_phase = 0;
+    for (int i = 0; i < WIDTH; i++) {
+        float y = -100 * visual_phase - 1.0f;
+        points[i] = (SDL_FPoint){.x = i, .y = y + HEIGHT / 2};
+        visual_phase += waves / WIDTH;
+        if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
+    }
+}
+
+void audio_create_wave_triangle(SDL_FPoint *points, float waves) {
+    float visual_phase = 0;
+    for (int i = 0; i < WIDTH; i++) {
+        float sample;
+        if (visual_phase < 0.25f) {
+            sample = 4.0f * visual_phase;  // Rising from 0 to +1
+        } else if (visual_phase < 0.75f) {
+            sample = 2.0f - 4.0f * visual_phase;  // Falling from +1 to -1
+        } else {
+            sample = -4.0f + 4.0f * visual_phase;  // Rising from -1 to 0
+        }
+        float y = -100 * sample;
+        points[i] = (SDL_FPoint){.x = i, .y = y + HEIGHT / 2};
+        visual_phase += waves / WIDTH;
+        if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
+    }
 }
 
 SDL_AppResult SDL_AppIterate(void *appstate) {
@@ -111,21 +198,30 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
     SDL_SetRenderScale(renderer, 2.0f, 2.0f);
-    SDL_RenderDebugTextFormat(renderer, 10, 10, "%.0f", freq);
+    SDL_RenderDebugTextFormat(renderer, 10, 10, "%.0f %s", freq, audio_wave_type_to_str(wave_type));
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
 
-    SDL_FPoint points[WIDTH];
-    float visual_phase = 0;
+
     const float N_WAVES_BASE = 4;
     float waves = N_WAVES_BASE * freq / BASE_FREQ_A;
-
-    for (int i = 0; i < WIDTH; i++) {
-        float y = -100 * SDL_sinf(2 * SDL_PI_F * visual_phase);
-        points[i] = (SDL_FPoint){.x = i, .y = y + HEIGHT / 2};
-        visual_phase += waves / WIDTH;
-        if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
+    SDL_FPoint points[WIDTH];
+    switch (wave_type) {
+        case AUDIO_WAVE_SINE:
+            audio_create_wave_sine(points, waves);
+            break;
+        case AUDIO_WAVE_SQUARE:
+            audio_create_wave_square(points, waves);
+            break;
+        case AUDIO_WAVE_SAW:
+            audio_create_wave_saw(points, waves);
+            break;
+        case AUDIO_WAVE_TRIANGLE:
+            audio_create_wave_triangle(points, waves);
+            break;
+        default:
+            SDL_assert(false);
     }
 
     SDL_RenderPoints(renderer, points, WIDTH);
