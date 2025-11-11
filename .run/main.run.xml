@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="main" type="CppFileRunConfiguration" factoryName="CppFileRunConfiguration" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="learning-synth" TARGET_NAME="main" CONFIG_NAME="main">
+    <option name="compilerOptions" value="-std=c99 -Wall -Werror -lSDL3 -lportmidi" />
+    <option name="sourceFile" value="$PROJECT_DIR$/main.c" />
+    <option name="toolchainName" value="gcc" />
+    <method v="2">
+      <option name="com.jetbrains.cidr.cpp.runfile.CppFileBuildBeforeRunTaskProvider$BasicBuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>
