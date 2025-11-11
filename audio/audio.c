@@ -3,6 +3,8 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "waves.c"
+#include "portmidi.h"
+#include "porttime.h"
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
@@ -12,10 +14,22 @@ const int WIDTH = 800;
 const int HEIGHT = 600;
 
 
+const int8_t MIN_NOTE_N = -8;
+const int8_t MAX_NOTE_N = 9;
+
+// A = 440 hz = MIDI 69
+int8_t current_midi_note = 69;
+float freq_from_note(const int8_t note) {
+    // notes https://en.wikipedia.org/wiki/Piano_key_frequencies
+    const int8_t a440_to_n = 20;
+    const int8_t n = (int8_t)(note - a440_to_n);
+    return SDL_powf(2, ((float)n - 49.0f) / 12.0f) * 440.0f;
+}
+
 int sample_rate = 44100;
 float BASE_FREQ_A = 440.0f;
 float freq = 440.0f;
-float base_amplitude = 0.01f;
+float base_amplitude = 0.1f;
 float audio_phase = 0;
 WavesType wave_type = WAVE_SINE;
 
@@ -68,6 +82,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     SDL_SetAppMetadata("Learning audio", "0.1", "dev.daniboy.learning-audio");
 
+    // startup window creation
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -106,7 +121,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         return SDL_APP_FAILURE;
     }
 
-
+    // audio stream creation
     SDL_AudioSpec spec;
     spec.channels = 1;
     spec.format = SDL_AUDIO_F32;
@@ -165,6 +180,17 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         }
     }
 
+    if (event->type == SDL_EVENT_KEY_DOWN) {
+        if (event->key.key == SDLK_1) {
+            current_midi_note++;
+            freq = freq_from_note(current_midi_note);
+        }
+        if (event->key.key == SDLK_0) {
+            current_midi_note--;
+            freq = freq_from_note(current_midi_note);
+        }
+    }
+
     return SDL_APP_CONTINUE;
 }
 
@@ -189,6 +215,11 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     // freq display
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
     SDL_RenderDebugTextFormat(renderer, 10, 10, "%.0f %s", freq, waves_type_to_str(wave_type));
+    SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+
+    // note display
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+    SDL_RenderDebugTextFormat(renderer, 150, 10, "NOTE: %s", "A4");
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
