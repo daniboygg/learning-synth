@@ -208,16 +208,16 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
     }
 
     if (event->type == SDL_EVENT_KEY_DOWN) {
-        if (event->key.key == SDLK_A) {
+        if (event->key.key == SDLK_1) {
             wave_type = WAVE_SINE;
         }
-        if (event->key.key == SDLK_S) {
+        if (event->key.key == SDLK_2) {
             wave_type = WAVE_SQUARE;
         }
-        if (event->key.key == SDLK_D) {
+        if (event->key.key == SDLK_3) {
             wave_type = WAVE_SAW;
         }
-        if (event->key.key == SDLK_F) {
+        if (event->key.key == SDLK_4) {
             wave_type = WAVE_TRIANGLE;
         }
     }
