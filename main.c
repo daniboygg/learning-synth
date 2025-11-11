@@ -1,31 +1,25 @@
 #define SDL_MAIN_USE_CALLBACKS 1
 #include <assert.h>
+#include <stdio.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "waves.c"
 #include "portmidi.h"
 #include "porttime.h"
 
-static SDL_Window *window = NULL;
-static SDL_Renderer *renderer = NULL;
-static SDL_AudioStream *audio_stream = NULL;
-
+// Window and rendering
+SDL_Window *window = NULL;
+SDL_Renderer *renderer = NULL;
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
+// FPS tracking
+Uint64 last_frame_time = 0;
+float last_update_fps = 0;
+float fps = 0.0f;
 
-const int8_t MIN_NOTE_N = -8;
-const int8_t MAX_NOTE_N = 9;
-
-// A = 440 hz = MIDI 69
-int8_t current_midi_note = 69;
-float freq_from_note(const int8_t note) {
-    // notes https://en.wikipedia.org/wiki/Piano_key_frequencies
-    const int8_t a440_to_n = 20;
-    const int8_t n = (int8_t)(note - a440_to_n);
-    return SDL_powf(2, ((float)n - 49.0f) / 12.0f) * 440.0f;
-}
-
+// Audio
+SDL_AudioStream *audio_stream = NULL;
 int sample_rate = 44100;
 float BASE_FREQ_A = 440.0f;
 float freq = 440.0f;
@@ -33,11 +27,27 @@ float base_amplitude = 0.1f;
 float audio_phase = 0;
 WavesType wave_type = WAVE_SINE;
 
-// FPS tracking
-Uint64 last_frame_time = 0;
-float last_update_fps = 0;
-float fps = 0.0f;
+// MIDI
+PortMidiStream *midi = NULL;
+#define INPUT_BUFFER_SIZE 100
+#define TIME_PROC ((int32_t (*)(void *)) Pt_Time)
+#define TIME_INFO NULL
+#define MIDI_DEVICE_ID 5
+#define MIDI_EVENT_BUFFER_SIZE 32
+PmEvent midi_event_buffer[MIDI_EVENT_BUFFER_SIZE];
+uint8_t current_midi_note = 69; // A = 440 hz = MIDI 69
+char *current_str_note = "A4";
 
+float note_to_freq(const uint8_t note) {
+    // notes https://en.wikipedia.org/wiki/Piano_key_frequencies
+    const int a440_to_n = 20;
+    const int n = note - a440_to_n;
+    return SDL_powf(2, ((float) n - 49.0f) / 12.0f) * 440.0f;
+}
+
+char *note_to_str(const uint8_t note) {
+    return "A4";
+}
 
 float wave_next_point(const WavesType type, float amplitude, float phase) {
     switch (type) {
@@ -54,7 +64,7 @@ float wave_next_point(const WavesType type, float amplitude, float phase) {
     }
 }
 
-static void SDLCALL audio_callback(
+void SDLCALL audio_callback(
     void *userdata,
     SDL_AudioStream *stream,
     int additional_amount,
@@ -67,7 +77,7 @@ static void SDLCALL audio_callback(
 
         for (int i = 0; i < num_samples; i++) {
             samples[i] = wave_next_point(wave_type, base_amplitude, audio_phase);
-            audio_phase += freq / sample_rate;
+            audio_phase += freq / (float) sample_rate;
             if (audio_phase >= 1.0f) audio_phase -= 1.0f;
         }
 
@@ -82,7 +92,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     SDL_SetAppMetadata("Learning audio", "0.1", "dev.daniboy.learning-audio");
 
-    // startup window creation
+    // window creation
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -133,6 +143,37 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     }
     SDL_ResumeAudioStreamDevice(audio_stream);
 
+
+    // midi process creation
+    Pm_Initialize();
+    Pt_Start(1, NULL, NULL);
+
+    // Open the MIDI input device
+    PmError err = Pm_OpenInput(
+        &midi,
+        MIDI_DEVICE_ID,
+        NULL,
+        INPUT_BUFFER_SIZE,
+        TIME_PROC,
+        TIME_INFO
+    );
+
+    if (err != pmNoError) {
+        SDL_Log("Couldn't open MIDI device %d: %s", MIDI_DEVICE_ID, Pm_GetErrorText(err));
+        SDL_Log("Available MIDI input devices:");
+        int num_devices = Pm_CountDevices();
+        for (int i = 0; i < num_devices; i++) {
+            const PmDeviceInfo *info = Pm_GetDeviceInfo(i);
+            if (info->input) {
+                SDL_Log("  %d: %s - %s", i, info->interf, info->name);
+            }
+        }
+        Pm_Terminate();
+        return SDL_APP_FAILURE;
+    }
+
+    SDL_Log("MIDI device %d opened successfully", MIDI_DEVICE_ID);
+
     return SDL_APP_CONTINUE;
 }
 
@@ -143,6 +184,7 @@ float map(const float v, const float v_min, const float v_max, const float d_min
 
 
 float initial_x = -1;
+
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
     if (
         event->type == SDL_EVENT_QUIT
@@ -181,13 +223,15 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
     }
 
     if (event->type == SDL_EVENT_KEY_DOWN) {
-        if (event->key.key == SDLK_1) {
+        if (event->key.key == SDLK_UP) {
             current_midi_note++;
-            freq = freq_from_note(current_midi_note);
+            freq = note_to_freq(current_midi_note);
+            current_str_note = note_to_str(current_midi_note);
         }
-        if (event->key.key == SDLK_0) {
+        if (event->key.key == SDLK_DOWN) {
             current_midi_note--;
-            freq = freq_from_note(current_midi_note);
+            freq = note_to_freq(current_midi_note);
+            current_str_note = note_to_str(current_midi_note);
         }
     }
 
@@ -222,6 +266,31 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     SDL_RenderDebugTextFormat(renderer, 150, 10, "NOTE: %s", "A4");
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
+    // process MIDI events
+    if (midi) {
+        const int num_events = Pm_Read(midi, midi_event_buffer, 32);
+
+        for (int i = 0; i < num_events; i++) {
+            const PmMessage msg = midi_event_buffer[i].message;
+            const uint8_t status = Pm_MessageStatus(msg);
+            const uint8_t note = Pm_MessageData1(msg);
+            const uint8_t velocity = Pm_MessageData2(msg);
+
+            // Note On event (status: 0x90-0x9F, velocity > 0)
+            if ((status & 0xF0) == 0x90 && velocity > 0) {
+                current_midi_note = note;
+                freq = note_to_freq(current_midi_note);
+                SDL_Log("Note ON: %d, velocity: %d, freq: %.2f", note, velocity, freq);
+            }
+            // Note Off event (status: 0x80-0x8F or Note On with velocity 0)
+            else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0)) {
+                SDL_Log("Note OFF: %d", note);
+                // Optionally: you could mute the sound here or handle multiple notes
+            }
+        }
+    }
+
+    // render
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
     const float N_WAVES_BASE = 4;
     float waves = N_WAVES_BASE * freq / BASE_FREQ_A;
@@ -239,8 +308,26 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     SDL_RenderPoints(renderer, points, WIDTH);
 
     SDL_RenderPresent(renderer);
+
     return SDL_APP_CONTINUE;
 }
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result) {
+    // Clean up MIDI
+    if (midi) {
+        Pm_Close(midi);
+    }
+    Pm_Terminate();
+
+    // Clean up SDL
+    if (audio_stream) {
+        SDL_DestroyAudioStream(audio_stream);
+    }
+    if (renderer) {
+        SDL_DestroyRenderer(renderer);
+    }
+    if (window) {
+        SDL_DestroyWindow(window);
+    }
+    SDL_Quit();
 }
