@@ -23,7 +23,7 @@ SDL_AudioStream *audio_stream = NULL;
 int sample_rate = 44100;
 float BASE_FREQ_A = 440.0f;
 float freq = 440.0f;
-float base_amplitude = 0.1f;
+float base_amplitude = 1.0f;
 float audio_phase = 0;
 WavesType wave_type = WAVE_SINE;
 
@@ -36,7 +36,9 @@ PortMidiStream *midi = NULL;
 #define MIDI_EVENT_BUFFER_SIZE 32
 PmEvent midi_event_buffer[MIDI_EVENT_BUFFER_SIZE];
 uint8_t current_midi_note = 69; // A = 440 hz = MIDI 69
-char *current_str_note = "A4";
+
+const char *note_names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+char note_str_buffer[5] = "A4"; // enough for "C#10\0"
 
 float note_to_freq(const uint8_t note) {
     // notes https://en.wikipedia.org/wiki/Piano_key_frequencies
@@ -46,8 +48,20 @@ float note_to_freq(const uint8_t note) {
 }
 
 char *note_to_str(const uint8_t note) {
-    return "A4";
+    int octave = note / 12 - 1;
+    int note_index = note % 12;
+
+    snprintf(note_str_buffer, sizeof(note_str_buffer), "%s%d", note_names[note_index], octave);
+    return note_str_buffer;
 }
+
+// volume control VCA
+typedef struct {
+    bool gate;
+    float velocity; // from 0.0 to 1.0
+} VolumeControl;
+VolumeControl vca = {.gate = false, .velocity = 0};
+
 
 float wave_next_point(const WavesType type, float amplitude, float phase) {
     switch (type) {
@@ -70,13 +84,19 @@ void SDLCALL audio_callback(
     int additional_amount,
     int total_amount
 ) {
+    if (vca.gate == false) {
+        return;
+    }
+
+    float amplitude = vca.velocity * base_amplitude;
+
     additional_amount = additional_amount / (int) sizeof(float); /* convert from bytes to samples */
     while (additional_amount > 0) {
         float samples[128];
         const int num_samples = SDL_min(additional_amount, SDL_arraysize(samples));
 
         for (int i = 0; i < num_samples; i++) {
-            samples[i] = wave_next_point(wave_type, base_amplitude, audio_phase);
+            samples[i] = wave_next_point(wave_type, amplitude, audio_phase);
             audio_phase += freq / (float) sample_rate;
             if (audio_phase >= 1.0f) audio_phase -= 1.0f;
         }
@@ -226,12 +246,10 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         if (event->key.key == SDLK_UP) {
             current_midi_note++;
             freq = note_to_freq(current_midi_note);
-            current_str_note = note_to_str(current_midi_note);
         }
         if (event->key.key == SDLK_DOWN) {
             current_midi_note--;
             freq = note_to_freq(current_midi_note);
-            current_str_note = note_to_str(current_midi_note);
         }
     }
 
@@ -263,7 +281,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 
     // note display
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-    SDL_RenderDebugTextFormat(renderer, 150, 10, "NOTE: %s", "A4");
+    SDL_RenderDebugTextFormat(renderer, 150, 10, "NOTE: %s", note_to_str(current_midi_note));
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
     // process MIDI events
@@ -280,12 +298,14 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             if ((status & 0xF0) == 0x90 && velocity > 0) {
                 current_midi_note = note;
                 freq = note_to_freq(current_midi_note);
+                vca.gate = true;
+                vca.velocity = map(velocity, 0.0f, 255.0f, 0.0f, 1.0f);
                 SDL_Log("Note ON: %d, velocity: %d, freq: %.2f", note, velocity, freq);
             }
-            // Note Off event (status: 0x80-0x8F or Note On with velocity 0)
             else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0)) {
+                vca.gate = false;
+                vca.velocity = 0;
                 SDL_Log("Note OFF: %d", note);
-                // Optionally: you could mute the sound here or handle multiple notes
             }
         }
     }
