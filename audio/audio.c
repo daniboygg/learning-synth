@@ -1,152 +1,138 @@
-#include <SDL2/SDL.h>
+#define SDL_MAIN_USE_CALLBACKS 1
 #include <math.h>
 #include <stdio.h>
-#include <stdbool.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846f
-#endif
+static SDL_Window *window = NULL;
+static SDL_Renderer *renderer = NULL;
+static SDL_AudioStream *audio_stream = NULL;
 
-float amplitude = 0.4f;
-float freq = 440.0f;
+const int WIDTH = 800;
+const int HEIGHT = 600;
+
 int sample_rate = 44100;
+float BASE_FREQ_A = 440.0f;
+float freq = 440.0f;
+float phase = 0;
 
-// float t = 0;
-float phase = 0.0f;
+static void SDLCALL audio_callback(
+    void *userdata,
+    SDL_AudioStream *stream,
+    int additional_amount,
+    int total_amount
+) {
+    additional_amount = additional_amount / (int) sizeof(float); /* convert from bytes to samples */
+    while (additional_amount > 0) {
+        float samples[128];
+        const int num_samples = SDL_min(additional_amount, SDL_arraysize(samples));
 
-void audio_callback(void *userdata, Uint8 *stream, int len) {
-    float *buffer = (float *) stream;
-    size_t num_samples = len / sizeof(float);
+        /* generate a 440Hz pure tone */
+        for (int i = 0; i < num_samples; i++) {
+            samples[i] = SDL_sinf(2 * SDL_PI_F * phase);
+            phase += freq / sample_rate;
+            if (phase >= 1.0f) phase -= 1.0f;
+        }
 
-    for (int i = 0; i < num_samples; i++) {
-        // sinew wave with time, sound artifacts, precision problem?
-        // buffer[i] = amplitude * sinf(2 * M_PI * freq * t);
-        // t += 1.0f / (float)sample_rate;
-
-        // https://www.desmos.com/calculator/eugiiu4iky
-        buffer[i] = amplitude * sinf(2 * M_PI * phase);
-        phase += freq / (float) sample_rate;
-        // mod(phase, 1) in c with a conditional and a substraction
-        if (phase >= 1.0f) phase -= 1.0f;
+        SDL_PutAudioStreamData(stream, samples, num_samples * (int) sizeof(float));
+        additional_amount -= num_samples;
     }
 }
 
-int width = 800;
-int height = 600;
+/* This function runs once at startup. */
+SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
+    SDL_SetAppMetadata("Learning audio", "0.1", "dev.daniboy.learning-audio");
 
-int main() {
-    // Initialize SDL (video + audio)
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-        return 1;
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+        SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
     }
 
-    // Create window
-    SDL_Window *window = SDL_CreateWindow(
-        "Audio Visualizer",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        width,
-        height,
-        SDL_WINDOW_SHOWN
-    );
-
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, "Learning audio");
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, WIDTH);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, HEIGHT);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_CENTERED);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, SDL_WINDOWPOS_CENTERED);
+    SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN, true);
+    window = SDL_CreateWindowWithProperties(props);
+    SDL_DestroyProperties(props);
     if (!window) {
-        printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
-        SDL_Quit();
-        return 1;
+        SDL_Log("Couldn't create window: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
     }
-
-    // Create renderer
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) {
-        printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
+        SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    }
+    SDL_SetRenderLogicalPresentation(renderer, WIDTH, HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+
+    SDL_AudioSpec spec;
+    spec.channels = 1;
+    spec.format = SDL_AUDIO_F32;
+    spec.freq = sample_rate;
+    audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
+    if (!audio_stream) {
+        SDL_Log("Couldn't create audio stream: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    }
+    SDL_ResumeAudioStreamDevice(audio_stream);
+
+    return SDL_APP_CONTINUE;
+}
+
+float map(const float v, const float v_min, const float v_max, const float d_min, const float d_max) {
+    float slope = (d_max - d_min) / (v_max - v_min);
+    return d_min + slope * (v - v_min);
+}
+
+
+SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
+    if (
+        event->type == SDL_EVENT_QUIT
+        || (event->type == SDL_EVENT_KEY_DOWN && event->key.key == SDLK_ESCAPE)
+    ) {
+        return SDL_APP_SUCCESS;
     }
 
-    // Setup audio
-    SDL_AudioSpec want, have;
-    SDL_zero(want);
-    want.freq = sample_rate;
-    want.format = AUDIO_F32; // 32-bit float samples
-    want.channels = 1; // mono
-    want.samples = 1024; // buffer size (on laptop at 512 cannot produce clean sound)
-    want.callback = audio_callback;
-    want.userdata = NULL;
-
-    SDL_AudioDeviceID audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-    if (audio_device == 0) {
-        printf("Failed to open audio device: %s\n", SDL_GetError());
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
+    if ( event->type == SDL_EVENT_MOUSE_MOTION) {
+        float max = BASE_FREQ_A * 2;
+        float f = map(event->motion.x, 0, WIDTH, 0, max);
+        freq = f;
     }
 
-    // Start playing audio
-    SDL_PauseAudioDevice(audio_device, 0);
+    return SDL_APP_CONTINUE;
+}
 
-    // Main loop
-    bool running = true;
-    SDL_Event event;
+SDL_AppResult SDL_AppIterate(void *appstate) {
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
 
-    while (running) {
-        // Handle events
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
-                running = false;
-                break;
-            }
-            if (event.type == SDL_KEYDOWN) {
-                if (event.key.keysym.sym == SDLK_a && event.key.repeat == 0) {
-                    freq = 261.63f;
-                }
-                if (event.key.keysym.sym == SDLK_w && event.key.repeat == 0) {
-                    freq = 277.18f;
-                }
-                if (event.key.keysym.sym == SDLK_s && event.key.repeat == 0) {
-                    freq = 293.66f;
-                }
-                if (event.key.keysym.sym == SDLK_h && event.key.repeat == 0) {
-                    freq = 440.0f;
-                }
-            }
-        }
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderScale(renderer, 2.0f, 2.0f);
+    SDL_RenderDebugTextFormat(renderer, 10, 10, "%.0f", freq);
+    SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
-        // Clear screen (black background)
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
 
-        // Draw waveform (green lines)
-        // Generate waveform for visualization (independent of audio samples)
-        // Show 2 complete cycles across the screen for clarity
-        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    SDL_FPoint points[WIDTH];
+    float visual_phase = 0;
+    const float N_WAVES_BASE = 4;
+    float waves = N_WAVES_BASE * freq / BASE_FREQ_A;
 
-        #define VISUAL_CYCLES 4.0f  // Number of sine wave cycles to show
-        for (int x = 0; x < width - 1; x++) {
-            float t1 = (float)x / (float)width * VISUAL_CYCLES;
-            float t2 = (float)(x + 1) / (float)width * VISUAL_CYCLES;
-
-            float y1 = amplitude * sinf(2.0f * M_PI * t1);
-            float y2 = amplitude * sinf(2.0f * M_PI * t2);
-
-            int screen_y1 = height / 2 + (int)(y1 * 200.0f);
-            int screen_y2 = height / 2 + (int)(y2 * 200.0f);
-
-            SDL_RenderDrawLine(renderer, x, screen_y1, x + 1, screen_y2);
-        }
-
-        // Present renderer
-        SDL_RenderPresent(renderer);
+    for (int i = 0; i < WIDTH; i++) {
+        float y = -100 * SDL_sinf(2 * SDL_PI_F * visual_phase);
+        points[i] = (SDL_FPoint){.x = i, .y = y + HEIGHT / 2};
+        visual_phase += waves / WIDTH;
+        if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
     }
 
-    // Cleanup
-    SDL_CloseAudioDevice(audio_device);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    SDL_RenderPoints(renderer, points, WIDTH);
 
-    return 0;
+    SDL_RenderPresent(renderer);
+    return SDL_APP_CONTINUE;
+}
+
+void SDL_AppQuit(void *appstate, SDL_AppResult result) {
 }

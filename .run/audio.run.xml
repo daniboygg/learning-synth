@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="audio" type="CppFileRunConfiguration" factoryName="CppFileRunConfiguration" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$/audio" PASS_PARENT_ENVS_2="true" PROJECT_NAME="learning-c" TARGET_NAME="audio" CONFIG_NAME="audio">
-    <option name="compilerOptions" value="-std=c99 -Werror  -lm -lSDL2" />
+    <option name="compilerOptions" value="-std=c99 -Werror -lSDL3" />
     <option name="sourceFile" value="$PROJECT_DIR$/audio/audio.c" />
     <option name="toolchainName" value="gcc" />
     <method v="2">
