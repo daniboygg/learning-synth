@@ -1,4 +1,5 @@
 #define SDL_MAIN_USE_CALLBACKS 1
+#include <assert.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "waves.c"
@@ -35,8 +36,7 @@ float wave_next_point(const WavesType type, float amplitude, float phase) {
         case WAVE_TRIANGLE:
             return waves_triangle(amplitude, phase);
         default:
-            SDL_assert(false);
-            return 0;
+            assert(false);
     }
 }
 
@@ -64,6 +64,8 @@ static void SDLCALL audio_callback(
 
 /* This function runs once at startup. */
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
+    SDL_SetHint(SDL_HINT_SHUTDOWN_DBUS_ON_QUIT, "1");
+
     SDL_SetAppMetadata("Learning audio", "0.1", "dev.daniboy.learning-audio");
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
