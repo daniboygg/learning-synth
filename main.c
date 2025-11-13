@@ -158,7 +158,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     if (err != pmNoError) {
         SDL_Log("Couldn't open MIDI device %d: %s", MIDI_DEVICE_ID, Pm_GetErrorText(err));
         SDL_Log("Available MIDI input devices:");
-        int num_devices = Pm_CountDevices();
+        const int num_devices = Pm_CountDevices();
         for (int i = 0; i < num_devices; i++) {
             const PmDeviceInfo *info = Pm_GetDeviceInfo(i);
             if (info->input) {
@@ -175,7 +175,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 }
 
 float map(const float v, const float v_min, const float v_max, const float d_min, const float d_max) {
-    float slope = (d_max - d_min) / (v_max - v_min);
+    const float slope = (d_max - d_min) / (v_max - v_min);
     return d_min + slope * (v - v_min);
 }
 
@@ -224,8 +224,8 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     SDL_RenderClear(renderer);
 
     // fps display - update once per second
-    Uint64 current_time = SDL_GetTicks();
-    float delta_ms = (float) (current_time - last_frame_time);
+    const Uint64 current_time = SDL_GetTicks();
+    const float delta_ms = (float) (current_time - last_frame_time);
     if (delta_ms > 0.0f && last_update_fps > 1000.0f) {
         fps = 1000.0f / delta_ms;
         last_update_fps = 0.0f;
@@ -262,7 +262,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
                 current_midi_note = note;
                 const float note_freq = note_to_freq(current_midi_note);
                 const float note_velocity = map(velocity, 0.0f, 255.0f, 0.0f, 1.0f);
-                PressedNote pressed_note = {
+                const PressedNote pressed_note = {
                     .freq = note_freq,
                     .midi_note = current_midi_note,
                     .velocity = note_velocity
@@ -277,7 +277,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     // render
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
     const float N_WAVES_BASE = 4;
-    float waves = N_WAVES_BASE * freq / BASE_FREQ_A;
+    const float waves = N_WAVES_BASE * freq / BASE_FREQ_A;
     SDL_FPoint points[WIDTH];
     float visual_phase = 0;
     for (int i = 0; i < WIDTH; i++) {
