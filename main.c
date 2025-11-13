@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "waves.c"
+#include "notes.c"
 #include "portmidi.h"
 #include "porttime.h"
 
@@ -35,32 +36,7 @@ PortMidiStream *midi = NULL;
 #define MIDI_DEVICE_ID 5
 #define MIDI_EVENT_BUFFER_SIZE 32
 PmEvent midi_event_buffer[MIDI_EVENT_BUFFER_SIZE];
-uint8_t current_midi_note = 69; // A = 440 hz = MIDI 69
-
-const char *note_names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-char note_str_buffer[5] = "A4"; // enough for "C#10\0"
-
-float note_to_freq(const uint8_t note) {
-    // notes https://en.wikipedia.org/wiki/Piano_key_frequencies
-    const int a440_to_n = 20;
-    const int n = note - a440_to_n;
-    return SDL_powf(2, ((float) n - 49.0f) / 12.0f) * 440.0f;
-}
-
-char *note_to_str(const uint8_t note) {
-    int octave = note / 12 - 1;
-    int note_index = note % 12;
-
-    snprintf(note_str_buffer, sizeof(note_str_buffer), "%s%d", note_names[note_index], octave);
-    return note_str_buffer;
-}
-
-// volume control VCA
-typedef struct {
-    bool gate;
-    float velocity; // from 0.0 to 1.0
-} VolumeControl;
-VolumeControl vca = {.gate = false, .velocity = 0};
+MidiNote current_midi_note = DEFAULT_MIDI_NOTE;
 
 
 float wave_next_point(const WavesType type, float amplitude, float phase) {
@@ -84,11 +60,12 @@ void SDLCALL audio_callback(
     int additional_amount,
     int total_amount
 ) {
-    if (vca.gate == false) {
+    const PressedNote *last_note = note_memory_peek(&note_memory);
+    if (last_note == NULL) {
         return;
     }
 
-    float amplitude = vca.velocity * base_amplitude;
+    float amplitude = last_note->velocity * base_amplitude;
 
     additional_amount = additional_amount / (int) sizeof(float); /* convert from bytes to samples */
     while (additional_amount > 0) {
@@ -97,7 +74,7 @@ void SDLCALL audio_callback(
 
         for (int i = 0; i < num_samples; i++) {
             samples[i] = wave_next_point(wave_type, amplitude, audio_phase);
-            audio_phase += freq / (float) sample_rate;
+            audio_phase += last_note->freq / (float) sample_rate;
             if (audio_phase >= 1.0f) audio_phase -= 1.0f;
         }
 
@@ -213,20 +190,6 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         return SDL_APP_SUCCESS;
     }
 
-    if (event->type == SDL_EVENT_MOUSE_MOTION) {
-        if (initial_x == -1) {
-            initial_x = event->motion.x;
-        }
-        // avoid initial movement, start on base freq and
-        // start to modify when some movement detected
-        if (initial_x != event->motion.x) {
-            float max = BASE_FREQ_A * 2;
-            float min = BASE_FREQ_A / 2;
-            float f = map(event->motion.x, 0, WIDTH, min, max);
-            freq = f;
-        }
-    }
-
     if (event->type == SDL_EVENT_KEY_DOWN) {
         if (event->key.key == SDLK_1) {
             wave_type = WAVE_SINE;
@@ -270,8 +233,8 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         last_update_fps += delta_ms;
     }
     last_frame_time = current_time;
-    SDL_SetRenderDrawColorFloat(renderer, 1, 1, 1, 0.6);
-    SDL_RenderDebugTextFormat(renderer, WIDTH - 75, 10, "%.0f FPS", fps);
+    SDL_SetRenderDrawColorFloat(renderer, 1, 1, 1, 0.6f);
+    SDL_RenderDebugTextFormat(renderer, (float) WIDTH - 75, 10, "%.0f FPS", fps);
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
     // freq display
@@ -291,21 +254,22 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         for (int i = 0; i < num_events; i++) {
             const PmMessage msg = midi_event_buffer[i].message;
             const uint8_t status = Pm_MessageStatus(msg);
-            const uint8_t note = Pm_MessageData1(msg);
+            const MidiNote note = Pm_MessageData1(msg);
             const uint8_t velocity = Pm_MessageData2(msg);
 
             // Note On event (status: 0x90-0x9F, velocity > 0)
             if ((status & 0xF0) == 0x90 && velocity > 0) {
                 current_midi_note = note;
-                freq = note_to_freq(current_midi_note);
-                vca.gate = true;
-                vca.velocity = map(velocity, 0.0f, 255.0f, 0.0f, 1.0f);
-                SDL_Log("Note ON: %d, velocity: %d, freq: %.2f", note, velocity, freq);
-            }
-            else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0)) {
-                vca.gate = false;
-                vca.velocity = 0;
-                SDL_Log("Note OFF: %d", note);
+                const float note_freq = note_to_freq(current_midi_note);
+                const float note_velocity = map(velocity, 0.0f, 255.0f, 0.0f, 1.0f);
+                PressedNote pressed_note = {
+                    .freq = note_freq,
+                    .midi_note = current_midi_note,
+                    .velocity = note_velocity
+                };
+                note_memory_push(&note_memory, pressed_note);
+            } else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0)) {
+                note_memory_remove(&note_memory, note);
             }
         }
     }
@@ -319,10 +283,10 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     for (int i = 0; i < WIDTH; i++) {
         float y = wave_next_point(wave_type, 100, visual_phase);
         y = -y; // correct for graphic coordinates, they increase from top to bottom
-        y = y + HEIGHT / 2;
-        points[i] = (SDL_FPoint){.x = i, .y = y};
+        y = y + (float) HEIGHT / 2;
+        points[i] = (SDL_FPoint){.x = (float) i, .y = y};
 
-        visual_phase += waves / WIDTH;
+        visual_phase += waves / (float) WIDTH;
         if (visual_phase >= 1.0f) { visual_phase -= 1.0f; }
     }
     SDL_RenderPoints(renderer, points, WIDTH);
