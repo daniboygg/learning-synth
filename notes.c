@@ -6,7 +6,7 @@ typedef uint8_t MidiNote;
 
 const int DEFAULT_MIDI_NOTE = 69; // A = 440 hz = MIDI 69
 const char *note_names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-char note_str_buffer[5] = "A4"; // enough for "C#10\0"
+char note_str_buffer[4] = "A4"; // enough for "C#9\0"
 
 float note_to_freq(const MidiNote note) {
     // notes https://en.wikipedia.org/wiki/Piano_key_frequencies
