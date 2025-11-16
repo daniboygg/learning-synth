@@ -27,6 +27,7 @@ float freq = 440.0f;
 float base_amplitude = 1.0f;
 float audio_phase = 0;
 WavesType wave_type = WAVE_SINE;
+float square_pulse_width = 0;
 
 // MIDI
 PortMidiStream *midi = NULL;
@@ -44,7 +45,7 @@ float wave_next_point(const WavesType type, float amplitude, float phase) {
         case WAVE_SINE:
             return waves_sine(amplitude, phase);
         case WAVE_SQUARE:
-            return waves_square(amplitude, phase);
+            return waves_square(amplitude, phase, square_pulse_width);
         case WAVE_SAW:
             return waves_saw(amplitude, phase);
         case WAVE_TRIANGLE:
@@ -179,6 +180,11 @@ float map(const float v, const float v_min, const float v_max, const float d_min
     return d_min + slope * (v - v_min);
 }
 
+float clamp(const float v, const float v_min, const float v_max) {
+    if (v < v_min) { return v_min; }
+    if (v > v_max) { return v_max; }
+    return v;
+}
 
 float initial_x = -1;
 
@@ -207,12 +213,10 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 
     if (event->type == SDL_EVENT_KEY_DOWN) {
         if (event->key.key == SDLK_UP) {
-            current_midi_note++;
-            freq = note_to_freq(current_midi_note);
+            // for easy debugging
         }
         if (event->key.key == SDLK_DOWN) {
-            current_midi_note--;
-            freq = note_to_freq(current_midi_note);
+            // for easy debugging
         }
     }
 
@@ -254,22 +258,40 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         for (int i = 0; i < num_events; i++) {
             const PmMessage msg = midi_event_buffer[i].message;
             const uint8_t status = Pm_MessageStatus(msg);
-            const MidiNote note = Pm_MessageData1(msg);
-            const uint8_t velocity = Pm_MessageData2(msg);
 
-            // Note On event (status: 0x90-0x9F, velocity > 0)
-            if ((status & 0xF0) == 0x90 && velocity > 0) {
-                current_midi_note = note;
-                const float note_freq = note_to_freq(current_midi_note);
-                const float note_velocity = map(velocity, 0.0f, 255.0f, 0.0f, 1.0f);
-                const PressedNote pressed_note = {
-                    .freq = note_freq,
-                    .midi_note = current_midi_note,
-                    .velocity = note_velocity
-                };
-                note_memory_push(&note_memory, pressed_note);
-            } else if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0)) {
-                note_memory_remove(&note_memory, note);
+            if ((status & 0xF0) == 0x90 || (status & 0xF0) == 0x80) {
+                const MidiNote note = Pm_MessageData1(msg);
+                const uint8_t velocity = Pm_MessageData2(msg);
+
+                // Note On event 0x90
+                if ((status & 0xF0) == 0x90 && velocity > 0) {
+                    current_midi_note = note;
+                    const float note_freq = note_to_freq(current_midi_note);
+                    const float note_velocity = map(velocity, 0.0f, 255.0f, 0.0f, 1.0f);
+                    const PressedNote pressed_note = {
+                        .freq = note_freq,
+                        .midi_note = current_midi_note,
+                        .velocity = note_velocity
+                    };
+                    note_memory_push(&note_memory, pressed_note);
+                }
+
+                // Note Off event 0x80
+                if ((status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0)) {
+                    note_memory_remove(&note_memory, note);
+                }
+            } else if ((status & 0xF0) == 0xB0) {
+                // Control change value 0xB0
+                const uint8_t cc_number = Pm_MessageData1(msg);
+                const uint8_t cc_value = Pm_MessageData2(msg);
+                // printf("CC: number %d, value %d\n", cc_number, cc_value);
+
+                if (cc_number == 110) {
+                    // knob 5
+                    float value = cc_value;
+                    square_pulse_width = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
+                    printf("pulse_width %f\n", square_pulse_width);
+                }
             }
         }
     }

@@ -33,8 +33,13 @@ float waves_sine(float amplitude, float phase) {
     return y;
 }
 
-float waves_square(float amplitude, float phase) {
-    float y = amplitude * (SDL_sinf(2 * SDL_PI_F * phase) > 0 ? 1.0f : -1.0f);
+/**
+ * @param pulse_with 0 = 50% duty, 1 = 0% duty
+ */
+float waves_square(float amplitude, float phase, float pulse_with) {
+    assert(pulse_with >= 0);
+    assert(pulse_with <= 1);
+    float y = amplitude * (SDL_sinf(2 * SDL_PI_F * phase) > pulse_with ? 1.0f : -1.0f);
     return y;
 }
 
