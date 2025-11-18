@@ -12,7 +12,6 @@ typedef enum {
     WAVE_TRIANGLE,
 } WavesType;
 
-
 char *waves_type_to_str(WavesType t) {
     switch (t) {
         case WAVE_SINE:
@@ -51,4 +50,32 @@ float waves_saw(float amplitude, float phase) {
 float waves_triangle(float amplitude, float phase) {
     float y = amplitude - 4 * amplitude * SDL_fabsf(phase - 0.5);
     return y;
+}
+
+
+typedef struct {
+    WavesType wave_type;
+    float freq;
+    float initial_phase;
+    float square_pulse_width;
+} Oscillator;
+
+Oscillator oscillator_init(WavesType wave_type) {
+    Oscillator oscillator = {.freq = 440.0f, .wave_type = wave_type};
+    return oscillator;
+}
+
+float oscillator_next_point(Oscillator oscillator, float amplitude, float phase) {
+    switch (oscillator.wave_type) {
+        case WAVE_SINE:
+            return waves_sine(amplitude, phase);
+        case WAVE_SQUARE:
+            return waves_square(amplitude, phase, oscillator.square_pulse_width);
+        case WAVE_SAW:
+            return waves_saw(amplitude, phase);
+        case WAVE_TRIANGLE:
+            return waves_triangle(amplitude, phase);
+        default:
+            assert(false);
+    }
 }

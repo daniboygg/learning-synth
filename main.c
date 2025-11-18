@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
-#include "waves.c"
+#include "oscillator.c"
 #include "notes.c"
 #include "portmidi.h"
 #include "porttime.h"
@@ -23,11 +23,10 @@ float fps = 0.0f;
 SDL_AudioStream *audio_stream = NULL;
 int sample_rate = 44100;
 float BASE_FREQ_A = 440.0f;
-float freq = 440.0f;
 float base_amplitude = 1.0f;
 float audio_phase = 0;
-WavesType wave_type = WAVE_SINE;
-float square_pulse_width = 0;
+
+Oscillator oscillator = {0};
 
 // MIDI
 PortMidiStream *midi = NULL;
@@ -39,21 +38,6 @@ PortMidiStream *midi = NULL;
 PmEvent midi_event_buffer[MIDI_EVENT_BUFFER_SIZE];
 MidiNote current_midi_note = DEFAULT_MIDI_NOTE;
 
-
-float wave_next_point(const WavesType type, float amplitude, float phase) {
-    switch (type) {
-        case WAVE_SINE:
-            return waves_sine(amplitude, phase);
-        case WAVE_SQUARE:
-            return waves_square(amplitude, phase, square_pulse_width);
-        case WAVE_SAW:
-            return waves_saw(amplitude, phase);
-        case WAVE_TRIANGLE:
-            return waves_triangle(amplitude, phase);
-        default:
-            assert(false);
-    }
-}
 
 void SDLCALL audio_callback(
     void *userdata,
@@ -74,7 +58,7 @@ void SDLCALL audio_callback(
         const int num_samples = SDL_min(additional_amount, SDL_arraysize(samples));
 
         for (int i = 0; i < num_samples; i++) {
-            samples[i] = wave_next_point(wave_type, amplitude, audio_phase);
+            samples[i] = oscillator_next_point(oscillator, amplitude, audio_phase);
             audio_phase += last_note->freq / (float) sample_rate;
             if (audio_phase >= 1.0f) audio_phase -= 1.0f;
         }
@@ -172,6 +156,9 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     SDL_Log("MIDI device %d opened successfully", MIDI_DEVICE_ID);
 
+    // create oscillators
+    oscillator = oscillator_init(WAVE_SINE);
+
     return SDL_APP_CONTINUE;
 }
 
@@ -198,16 +185,16 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 
     if (event->type == SDL_EVENT_KEY_DOWN) {
         if (event->key.key == SDLK_1) {
-            wave_type = WAVE_SINE;
+            oscillator.wave_type = WAVE_SINE;
         }
         if (event->key.key == SDLK_2) {
-            wave_type = WAVE_SQUARE;
+            oscillator.wave_type = WAVE_SQUARE;
         }
         if (event->key.key == SDLK_3) {
-            wave_type = WAVE_SAW;
+            oscillator.wave_type = WAVE_SAW;
         }
         if (event->key.key == SDLK_4) {
-            wave_type = WAVE_TRIANGLE;
+            oscillator.wave_type = WAVE_TRIANGLE;
         }
     }
 
@@ -243,7 +230,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 
     // freq display
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
-    SDL_RenderDebugTextFormat(renderer, 10, 10, "%.0f %s", freq, waves_type_to_str(wave_type));
+    SDL_RenderDebugTextFormat(renderer, 10, 10, "%.0f %s", oscillator.freq, waves_type_to_str(oscillator.wave_type));
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
     // note display
@@ -289,8 +276,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
                 if (cc_number == 110) {
                     // knob 5
                     float value = cc_value;
-                    square_pulse_width = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
-                    printf("pulse_width %f\n", square_pulse_width);
+                    oscillator.square_pulse_width = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
                 }
             }
         }
@@ -299,11 +285,11 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     // render
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
     const float N_WAVES_BASE = 4;
-    const float waves = N_WAVES_BASE * freq / BASE_FREQ_A;
+    const float waves = N_WAVES_BASE * oscillator.freq / BASE_FREQ_A;
     SDL_FPoint points[WIDTH];
     float visual_phase = 0;
     for (int i = 0; i < WIDTH; i++) {
-        float y = wave_next_point(wave_type, 100, visual_phase);
+        float y = oscillator_next_point(oscillator, 100, visual_phase);
         y = -y; // correct for graphic coordinates, they increase from top to bottom
         y = y + (float) HEIGHT / 2;
         points[i] = (SDL_FPoint){.x = (float) i, .y = y};
