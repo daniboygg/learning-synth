@@ -23,7 +23,7 @@ float fps = 0.0f;
 SDL_AudioStream *audio_stream = NULL;
 int sample_rate = 44100;
 float BASE_FREQ_A = 440.0f;
-float base_amplitude = 1.0f;
+float volume = 1.0f;
 float audio_phase = 0;
 
 Oscillator oscillator = {0};
@@ -50,7 +50,7 @@ void SDLCALL audio_callback(
         return;
     }
 
-    float amplitude = last_note->velocity * base_amplitude;
+    float amplitude = last_note->velocity * volume;
 
     additional_amount = additional_amount / (int) sizeof(float); /* convert from bytes to samples */
     while (additional_amount > 0) {
@@ -238,6 +238,11 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     SDL_RenderDebugTextFormat(renderer, 150, 10, "NOTE: %s", note_to_str(current_midi_note));
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
+    // Volume display
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+    SDL_RenderDebugTextFormat(renderer, 230, 10, "VOLUME: %d", (int)(volume * 100));
+    SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+
     // process MIDI events
     if (midi) {
         const int num_events = Pm_Read(midi, midi_event_buffer, 32);
@@ -277,6 +282,12 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
                     // knob 5
                     float value = cc_value;
                     oscillator.square_pulse_width = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
+                }
+
+                if (cc_number == 17) {
+                    // fader 4
+                    float value = cc_value;
+                    volume = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
                 }
             }
         }
