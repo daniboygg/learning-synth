@@ -5,6 +5,7 @@
 #include <SDL3/SDL_main.h>
 #include "oscillator.c"
 #include "note.c"
+#include "filter.c"
 #include "portmidi.h"
 #include "porttime.h"
 
@@ -27,6 +28,7 @@ float volume = 1.0f;
 float audio_phase = 0;
 
 Oscillator oscillator = {0};
+FilterLowpass filter = {0};
 
 // MIDI
 PortMidiStream *midi = NULL;
@@ -58,7 +60,8 @@ void SDLCALL audio_callback(
         const int num_samples = SDL_min(additional_amount, SDL_arraysize(samples));
 
         for (int i = 0; i < num_samples; i++) {
-            samples[i] = oscillator_next_point(oscillator, amplitude, audio_phase);
+            float sample = oscillator_next_point(oscillator, amplitude, audio_phase);
+            samples[i] = filter_lowpass_process(&filter, sample);
             audio_phase += last_note->freq / (float) sample_rate;
             if (audio_phase >= 1.0f) audio_phase -= 1.0f;
         }
@@ -158,6 +161,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     // create oscillators
     oscillator = oscillator_init(WAVE_SINE);
+    // create filters
+    filter = filter_lowpass_init();
 
     return SDL_APP_CONTINUE;
 }
@@ -243,6 +248,11 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     SDL_RenderDebugTextFormat(renderer, 230, 10, "VOLUME: %d", (int)(volume * 100));
     SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 
+    // Volume display
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+    SDL_RenderDebugTextFormat(renderer, 330, 10, "CUTOFF: %0.2f", filter.cutoff);
+    SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+
     // process MIDI events
     if (midi) {
         const int num_events = Pm_Read(midi, midi_event_buffer, 32);
@@ -275,19 +285,23 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             } else if ((status & 0xF0) == 0xB0) {
                 // Control change value 0xB0
                 const int cc_number = Pm_MessageData1(msg);
-                const int cc_value = Pm_MessageData2(msg);
-                // printf("CC: number %d, value %d\n", cc_number, cc_value);
+                const float cc_value = Pm_MessageData2(msg);
+                // printf("CC: number %d, value %f\n", cc_number, cc_value);
 
                 if (cc_number == 93) {
                     // knob 5
-                    float value = cc_value;
-                    oscillator.square_pulse_width = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
+                    oscillator.square_pulse_width = map(cc_value, 0.0f, 127.0f, 0.0f, 1.0f);
                 }
 
                 if (cc_number == 17) {
                     // fader 4
-                    float value = cc_value;
-                    volume = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
+                    volume = map(cc_value, 0.0f, 127.0f, 0.0f, 1.0f);
+                }
+
+                if (cc_number == 18) {
+                    // knob 6 - filter cutoff
+                    float cutoff = map(cc_value, 0.0f, 127.0f, 0.01f, 1.0f);
+                    filter_lowpass_set_cutoff(&filter, cutoff);
                 }
             }
         }
