@@ -273,7 +273,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
                 const uint8_t cc_value = Pm_MessageData2(msg);
                 // printf("CC: number %d, value %d\n", cc_number, cc_value);
 
-                if (cc_number == 110) {
+                if (cc_number == 93) {
                     // knob 5
                     float value = cc_value;
                     oscillator.square_pulse_width = map(value, 0.0f, 127.0f, 0.0f, 1.0f);
