@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <SDL3/SDL.h>
 
-typedef uint8_t MidiNote;
+typedef int MidiNote;
 
 const int DEFAULT_MIDI_NOTE = 69; // A = 440 hz = MIDI 69
 const char *note_names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};

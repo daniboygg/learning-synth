@@ -249,7 +249,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 
         for (int i = 0; i < num_events; i++) {
             const PmMessage msg = midi_event_buffer[i].message;
-            const uint8_t status = Pm_MessageStatus(msg);
+            const int status = Pm_MessageStatus(msg);
 
             if ((status & 0xF0) == 0x90 || (status & 0xF0) == 0x80) {
                 const MidiNote note = Pm_MessageData1(msg);
@@ -274,8 +274,8 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
                 }
             } else if ((status & 0xF0) == 0xB0) {
                 // Control change value 0xB0
-                const uint8_t cc_number = Pm_MessageData1(msg);
-                const uint8_t cc_value = Pm_MessageData2(msg);
+                const int cc_number = Pm_MessageData1(msg);
+                const int cc_value = Pm_MessageData2(msg);
                 // printf("CC: number %d, value %d\n", cc_number, cc_value);
 
                 if (cc_number == 93) {
