@@ -1,5 +1,5 @@
 #include "greatest.h"
-#include "notes.c"
+#include "note.c"
 
 TEST note_to_freq_a440(void) {
     // MIDI note 69 is A4 = 440 Hz

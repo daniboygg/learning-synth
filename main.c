@@ -4,7 +4,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "oscillator.c"
-#include "notes.c"
+#include "note.c"
 #include "portmidi.h"
 #include "porttime.h"
 
